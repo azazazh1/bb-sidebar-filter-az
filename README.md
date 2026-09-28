@@ -7,6 +7,7 @@ If you work across many projects, the built-in sidebar (in its "project"
 organization mode) shows **every** project as a collapsible row — including
 projects whose threads are all archived and read. This list drops those rows
 entirely, while keeping projects with something active or unread in them.
+Archived threads are not included in the unread part of this filter.
 
 ## Install
 
@@ -36,14 +37,15 @@ bb plugin config sidebar-filter set toggleShortcut "Alt+A"
 
 | Setting             | Default  | Meaning                                                        |
 | ------------------- | -------- | -------------------------------------------------------------- |
-| `hideEmptyProjects` | `true`   | Hide projects with no active or unread threads. `false` shows them all. |
-| `activeMode`        | `exists` | `exists` — non-archived threads count. `running` — only currently running threads count. Unread threads count in either mode. |
+| `hideEmptyProjects` | `true`   | Hide projects with no active or unread (non-archived) threads. `false` shows them all. |
+| `activeMode`        | `exists` | `exists` — non-archived threads count. `running` — only currently running threads count. Unread non-archived threads count in either mode. |
 | `toggleShortcut`    | `Alt+A`  | Keyboard shortcut for switching between `exists` and `running`; empty disables it. |
 
 ## What the list does
 
 - One collapsible row per project, in bb's project order; a project appears
-  only when it has active or unread matching threads.
+  only when it has active or unread matching threads. Archived unread threads
+  are not included.
 - Pinned threads in their own **Pinned** section on top, like the built-in
   list.
 - Live updates: projects appear/disappear as threads start, finish, are

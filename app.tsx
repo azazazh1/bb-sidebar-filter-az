@@ -71,7 +71,10 @@ function matchesProjectFilter(
   thread: PluginSidebarThread,
   activeMode: "exists" | "running",
 ): boolean {
-  return isActiveThread(thread, activeMode) || thread.isUnread;
+  return (
+    isActiveThread(thread, activeMode) ||
+    (!thread.isArchived && thread.isUnread)
+  );
 }
 
 function matchesQuery(thread: PluginSidebarThread, query: string): boolean {
@@ -83,11 +86,11 @@ function matchesQuery(thread: PluginSidebarThread, query: string): boolean {
 }
 
 function statusDotClass(thread: PluginSidebarThread): string {
+  if (thread.indicator === "unread-error") return "bg-destructive";
   if (thread.indicator === "runtime" || activityRunning(thread)) {
     return "bg-yellow-400 animate-pulse";
   }
   if (thread.isUnread) return "bg-green-500";
-  if (thread.indicator === "unread-error") return "bg-destructive";
   if (thread.indicator === "waiting-for-input" || thread.hasPendingInteraction) {
     return "bg-foreground";
   }
@@ -175,23 +178,44 @@ function FilteredProjectList(props: PluginThreadListProps) {
     null,
   );
   const activeMode = localMode ?? configuredMode;
+  const committedModeRef = useRef<"exists" | "running" | null>(null);
+  const persistenceChainRef = useRef(Promise.resolve());
+  const latestPersistenceRef = useRef(0);
 
   useEffect(() => {
+    committedModeRef.current = configuredMode;
     setLocalMode(null);
-  }, [values?.activeMode]);
+  }, [values?.activeMode, configuredMode]);
 
   const toggleActiveMode = () => {
     const nextMode = activeMode === "running" ? "exists" : "running";
+    const requestId = ++latestPersistenceRef.current;
     setLocalMode(nextMode);
-    if (typeof fetch === "function") {
-      void fetch("/api/v1/plugins/sidebar-filter/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values: { activeMode: nextMode } }),
-      }).catch((error) => {
+
+    const persist = async () => {
+      try {
+        const response = await fetch(
+          "/api/v1/plugins/sidebar-filter/settings",
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ values: { activeMode: nextMode } }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+        committedModeRef.current = nextMode;
+      } catch (error) {
         console.warn("Failed to persist sidebar-filter setting:", error);
-      });
-    }
+        if (requestId === latestPersistenceRef.current) {
+          const committedMode = committedModeRef.current ?? configuredMode;
+          setLocalMode(committedMode === configuredMode ? null : committedMode);
+        }
+      }
+    };
+
+    persistenceChainRef.current = persistenceChainRef.current.then(persist);
   };
 
   useEffect(() => {
@@ -378,7 +402,7 @@ function FilteredProjectList(props: PluginThreadListProps) {
         ) : (
           visibleProjects.map((project) => {
             const forest = forests.get(project.id);
-            if (!forest || forest.roots.length === 0) return null;
+            if (!forest) return null;
             return (
               <ProjectGroup
                 key={project.id}

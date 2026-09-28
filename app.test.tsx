@@ -194,6 +194,19 @@ describe("active mode toggle", () => {
     });
     expect(slot.getByRole("button", { name: "○ All active" })).toBeTruthy();
   });
+
+  test("rolls back when saving the mode fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+    const slot = renderThreadList();
+
+    fireEvent.click(slot.getByRole("button", { name: "○ All active" }));
+    expect(slot.getByRole("button", { name: "● Running" })).toBeTruthy();
+
+    await waitFor(() =>
+      expect(slot.getByRole("button", { name: "○ All active" })).toBeTruthy(),
+    );
+  });
 });
 
 describe("thread status colors", () => {
@@ -224,6 +237,20 @@ describe("thread status colors", () => {
       .querySelector("span");
 
     expect(dot?.className).toContain("bg-green-500");
+  });
+
+  test("keeps an unread error red", () => {
+    const slot = renderWithThread({
+      ...thread,
+      isUnread: true,
+      indicator: "unread-error",
+    });
+    const dot = slot
+      .getByRole("link", { name: "Fix sidebar actions" })
+      .querySelector("span");
+
+    expect(dot?.className).toContain("bg-destructive");
+    expect(dot?.className).not.toContain("bg-green-500");
   });
 });
 
@@ -354,7 +381,7 @@ describe("project menu and nesting", () => {
     expect(slot.getByRole("link", { name: "Running child" })).toBeTruthy();
   });
 
-  test("keeps a project visible when its only thread is unread", () => {
+  test("does not include an archived unread thread", () => {
     const unreadArchivedThread: PluginSidebarThread = {
       ...thread,
       id: "thread-unread",
@@ -366,7 +393,16 @@ describe("project menu and nesting", () => {
     const slot = renderWith([unreadArchivedThread]);
 
     expect(
-      slot.getByRole("link", { name: "Unread archived thread" }),
-    ).toBeTruthy();
+      slot.queryByRole("link", { name: "Unread archived thread" }),
+    ).toBeNull();
+  });
+
+  test("shows empty projects when configured not to hide them", () => {
+    const slot = renderSlot(threadList, slotProps, {
+      settings: { hideEmptyProjects: false, activeMode: "exists" },
+      sidebarThreads: { status: "ready", projects: [project], threads: [] },
+    });
+
+    expect(slot.getByRole("button", { name: "Sidebar Filter" })).toBeTruthy();
   });
 });
