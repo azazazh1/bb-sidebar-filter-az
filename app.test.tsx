@@ -9,6 +9,7 @@ import type {
   PluginSidebarThread,
   PluginThreadListProps,
 } from "@get-bb/plugin-sdk/app";
+import { computeProjectReorder, moveProjectStep } from "./app";
 import {
   afterEach,
   beforeAll,
@@ -404,5 +405,198 @@ describe("project menu and nesting", () => {
     });
 
     expect(slot.getByRole("button", { name: "Sidebar Filter" })).toBeTruthy();
+  });
+});
+
+describe("project reorder helpers", () => {
+  const p1: PluginSidebarProject = {
+    id: "p1",
+    name: "P1",
+    isPersonal: false,
+    href: "",
+    settingsHref: "",
+  };
+  const p2: PluginSidebarProject = {
+    id: "p2",
+    name: "P2",
+    isPersonal: false,
+    href: "",
+    settingsHref: "",
+  };
+  const p3: PluginSidebarProject = {
+    id: "p3",
+    name: "P3",
+    isPersonal: false,
+    href: "",
+    settingsHref: "",
+  };
+  const list = [p1, p2, p3];
+
+  test("moves project to before target", () => {
+    const res = computeProjectReorder(list, "p3", "p1", "before");
+    expect(res).not.toBeNull();
+    expect(res?.newOrder.map((p) => p.id)).toEqual(["p3", "p1", "p2"]);
+    expect(res?.previousProjectId).toBeNull();
+    expect(res?.nextProjectId).toBe("p1");
+  });
+
+  test("moves project to after target", () => {
+    const res = computeProjectReorder(list, "p1", "p3", "after");
+    expect(res).not.toBeNull();
+    expect(res?.newOrder.map((p) => p.id)).toEqual(["p2", "p3", "p1"]);
+    expect(res?.previousProjectId).toBe("p3");
+    expect(res?.nextProjectId).toBeNull();
+  });
+
+  test("returns null if moving to current position", () => {
+    const res1 = computeProjectReorder(list, "p1", "p1", "before");
+    expect(res1).toBeNull();
+
+    const res2 = computeProjectReorder(list, "p1", "p2", "before");
+    expect(res2).toBeNull();
+  });
+
+  test("moves project one step up or down", () => {
+    const up = moveProjectStep(list, "p2", "up");
+    expect(up?.newOrder.map((p) => p.id)).toEqual(["p2", "p1", "p3"]);
+
+    const down = moveProjectStep(list, "p2", "down");
+    expect(down?.newOrder.map((p) => p.id)).toEqual(["p1", "p3", "p2"]);
+
+    expect(moveProjectStep(list, "p1", "up")).toBeNull();
+    expect(moveProjectStep(list, "p3", "down")).toBeNull();
+  });
+});
+
+describe("drag-and-drop and menu project reordering", () => {
+  const projA: PluginSidebarProject = {
+    id: "proj-a",
+    name: "Project Alpha",
+    isPersonal: false,
+    href: "",
+    settingsHref: "",
+  };
+  const projB: PluginSidebarProject = {
+    id: "proj-b",
+    name: "Project Beta",
+    isPersonal: false,
+    href: "",
+    settingsHref: "",
+  };
+  const threadA: PluginSidebarThread = {
+    ...thread,
+    id: "t-a",
+    projectId: "proj-a",
+  };
+  const threadB: PluginSidebarThread = {
+    ...thread,
+    id: "t-b",
+    projectId: "proj-b",
+  };
+
+  test("shows drag handle for each project row", () => {
+    const slot = renderSlot(threadList, slotProps, {
+      settings: { hideEmptyProjects: false, activeMode: "exists" },
+      sidebarThreads: {
+        status: "ready",
+        projects: [projA, projB],
+        threads: [threadA, threadB],
+      },
+    });
+
+    expect(
+      slot.getByRole("button", {
+        name: "Drag to reorder project Project Alpha",
+      }),
+    ).toBeTruthy();
+    expect(
+      slot.getByRole("button", {
+        name: "Drag to reorder project Project Beta",
+      }),
+    ).toBeTruthy();
+  });
+
+  test("triggers drag and drop reorder RPC", async () => {
+    const reorderProject = vi.fn().mockResolvedValue({ ok: true });
+    const slot = renderSlot(threadList, slotProps, {
+      rpc: { reorderProject } as any,
+      settings: { hideEmptyProjects: false, activeMode: "exists" },
+      sidebarThreads: {
+        status: "ready",
+        projects: [projA, projB],
+        threads: [threadA, threadB],
+      },
+    });
+
+    const handleA = slot.getByRole("button", {
+      name: "Drag to reorder project Project Alpha",
+    });
+    const groupB = slot.getByText("Project Beta").closest(".group\\/project")!;
+
+    const dataTransfer = {
+      setData: vi.fn(),
+      effectAllowed: "move",
+      dropEffect: "none",
+    };
+    fireEvent.dragStart(handleA, { dataTransfer });
+
+    vi.spyOn(groupB, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+      bottom: 200,
+      height: 100,
+      left: 0,
+      right: 200,
+      width: 200,
+      x: 0,
+      y: 100,
+      toJSON: () => {},
+    });
+
+    fireEvent.dragOver(groupB, {
+      dataTransfer,
+      clientY: 180, // bottom half -> after
+    });
+
+    expect(slot.getByTestId("drop-indicator-after")).toBeTruthy();
+
+    fireEvent.drop(groupB, { dataTransfer });
+
+    await waitFor(() =>
+      expect(reorderProject).toHaveBeenCalledWith({
+        projectId: "proj-a",
+        previousProjectId: "proj-b",
+        nextProjectId: null,
+      }),
+    );
+  });
+
+  test("moves project up and down from project menu", async () => {
+    const reorderProject = vi.fn().mockResolvedValue({ ok: true });
+    const slot = renderSlot(threadList, slotProps, {
+      rpc: { reorderProject } as any,
+      settings: { hideEmptyProjects: false, activeMode: "exists" },
+      sidebarThreads: {
+        status: "ready",
+        projects: [projA, projB],
+        threads: [threadA, threadB],
+      },
+    });
+
+    fireEvent.click(
+      slot.getByRole("button", { name: "Project actions for Project Beta" }),
+    );
+    const moveUp = slot.getByRole("menuitem", { name: "Move up" });
+    expect(moveUp).toBeTruthy();
+    expect(slot.queryByRole("menuitem", { name: "Move down" })).toBeNull();
+
+    fireEvent.click(moveUp);
+
+    await waitFor(() =>
+      expect(reorderProject).toHaveBeenCalledWith({
+        projectId: "proj-b",
+        previousProjectId: null,
+        nextProjectId: "proj-a",
+      }),
+    );
   });
 });

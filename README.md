@@ -46,6 +46,8 @@ bb plugin config sidebar-filter set toggleShortcut "Alt+A"
 - One collapsible row per project, in bb's project order; a project appears
   only when it has active or unread matching threads. Archived unread threads
   are not included.
+- **Drag-and-drop project reordering**: grab the drag grip handle (`⋮⋮`) on hover to reorder projects; visual drop indicator lines indicate where the project will be placed.
+- **Project menu actions**: click `⋯` on any project row to quickly "Move up" or "Move down".
 - Pinned threads in their own **Pinned** section on top, like the built-in
   list.
 - Live updates: projects appear/disappear as threads start, finish, are
@@ -71,10 +73,10 @@ bb plugin config sidebar-filter set toggleShortcut "Alt+A"
 
 ## How it works
 
-- Backend (`server.ts`): declares the two settings above. Nothing else.
+- Backend (`server.ts`): declares settings and `reorderProject` RPC calling `bb.sdk.projects.reorder` to persist order changes across clients.
 - Frontend (`app.tsx`): registers the exclusive `experimental_threadList`
   slot and renders `experimental_useSidebarThreads()` data — the exact same
-  live cache the built-in list uses — keeping threads that are active or unread.
+  live cache the built-in list uses — keeping threads that are active or unread, with optimistic drag-and-drop reordering.
 
 ## Development
 

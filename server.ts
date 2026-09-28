@@ -24,6 +24,16 @@ export const rpcContract = defineRpcContract({
     input: z.object({ projectId: z.string() }).strict(),
     output: z.object({ ok: z.boolean() }),
   },
+  reorderProject: {
+    input: z
+      .object({
+        projectId: z.string(),
+        previousProjectId: z.string().nullable(),
+        nextProjectId: z.string().nullable(),
+      })
+      .strict(),
+    output: z.object({ ok: z.boolean() }),
+  },
 });
 
 export default async function plugin(bb: BbPluginApi) {
@@ -68,6 +78,14 @@ export default async function plugin(bb: BbPluginApi) {
       for (const thread of roots) {
         await bb.sdk.threads.archive({ threadId: thread.id });
       }
+      return { ok: true };
+    },
+    async reorderProject({ projectId, previousProjectId, nextProjectId }) {
+      await bb.sdk.projects.reorder({
+        projectId,
+        previousProjectId,
+        nextProjectId,
+      });
       return { ok: true };
     },
   });

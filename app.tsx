@@ -166,8 +166,97 @@ type MenuState =
       returnFocus: HTMLButtonElement | null;
     };
 
+export type DropPosition = "before" | "after";
+
+export interface ReorderResult {
+  newOrder: PluginSidebarProject[];
+  previousProjectId: string | null;
+  nextProjectId: string | null;
+}
+
+export function computeProjectReorder(
+  projects: readonly PluginSidebarProject[],
+  draggedId: string,
+  targetId: string,
+  position: DropPosition,
+): ReorderResult | null {
+  if (draggedId === targetId) return null;
+  const currentIndex = projects.findIndex((p) => p.id === draggedId);
+  const targetIndex = projects.findIndex((p) => p.id === targetId);
+  if (currentIndex === -1 || targetIndex === -1) return null;
+
+  const list = [...projects];
+  const [moved] = list.splice(currentIndex, 1);
+
+  const newTargetIndex = list.findIndex((p) => p.id === targetId);
+  const insertIndex =
+    position === "before" ? newTargetIndex : newTargetIndex + 1;
+  list.splice(insertIndex, 0, moved);
+
+  const isUnchanged = list.every((p, i) => p.id === projects[i].id);
+  if (isUnchanged) return null;
+
+  const finalIndex = list.findIndex((p) => p.id === draggedId);
+  const previousProjectId = list[finalIndex - 1]?.id ?? null;
+  const nextProjectId = list[finalIndex + 1]?.id ?? null;
+
+  return {
+    newOrder: list,
+    previousProjectId,
+    nextProjectId,
+  };
+}
+
+export function moveProjectStep(
+  projects: readonly PluginSidebarProject[],
+  projectId: string,
+  direction: "up" | "down",
+): ReorderResult | null {
+  const index = projects.findIndex((p) => p.id === projectId);
+  if (index === -1) return null;
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= projects.length) return null;
+  const targetId = projects[targetIndex].id;
+  const position = direction === "up" ? "before" : "after";
+  return computeProjectReorder(projects, projectId, targetId, position);
+}
+
+function DragGripIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className ?? "size-3.5"}
+      aria-hidden="true"
+    >
+      <circle cx="5" cy="3.5" r="1.2" />
+      <circle cx="11" cy="3.5" r="1.2" />
+      <circle cx="5" cy="8" r="1.2" />
+      <circle cx="11" cy="8" r="1.2" />
+      <circle cx="5" cy="12.5" r="1.2" />
+      <circle cx="11" cy="12.5" r="1.2" />
+    </svg>
+  );
+}
+
 function FilteredProjectList(props: PluginThreadListProps) {
-  const { status, threads, projects } = experimental_useSidebarThreads();
+  const { status, threads, projects: serverProjects } =
+    experimental_useSidebarThreads();
+  const [optimisticProjects, setOptimisticProjects] = useState<
+    readonly PluginSidebarProject[] | null
+  >(null);
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    projectId: string;
+    position: DropPosition;
+  } | null>(null);
+  const rpc = useRpc<typeof rpcContract>();
+
+  useEffect(() => {
+    setOptimisticProjects(null);
+  }, [serverProjects]);
+
+  const projects = optimisticProjects ?? serverProjects;
   const { values } = useSettings();
   const hideEmpty = (values?.hideEmptyProjects ?? true) !== false;
   const configuredMode: "exists" | "running" =
@@ -261,6 +350,54 @@ function FilteredProjectList(props: PluginThreadListProps) {
       }
       return next;
     });
+  };
+
+  const handleReorder = async (
+    draggedId: string,
+    targetId: string,
+    position: DropPosition,
+  ) => {
+    const result = computeProjectReorder(
+      projects,
+      draggedId,
+      targetId,
+      position,
+    );
+    if (!result) return;
+
+    setOptimisticProjects(result.newOrder);
+
+    try {
+      await rpc.call("reorderProject", {
+        projectId: draggedId,
+        previousProjectId: result.previousProjectId,
+        nextProjectId: result.nextProjectId,
+      });
+    } catch (error) {
+      console.error("Failed to reorder projects:", error);
+      setOptimisticProjects(null);
+    }
+  };
+
+  const handleMoveStep = async (
+    projectId: string,
+    direction: "up" | "down",
+  ) => {
+    const result = moveProjectStep(projects, projectId, direction);
+    if (!result) return;
+
+    setOptimisticProjects(result.newOrder);
+
+    try {
+      await rpc.call("reorderProject", {
+        projectId,
+        previousProjectId: result.previousProjectId,
+        nextProjectId: result.nextProjectId,
+      });
+    } catch (error) {
+      console.error("Failed to reorder project:", error);
+      setOptimisticProjects(null);
+    }
   };
 
   // Pinned threads live in their own section on top, like the built-in list;
@@ -359,7 +496,7 @@ function FilteredProjectList(props: PluginThreadListProps) {
   }
 
   return (
-    <MenuProvider>
+    <MenuProvider onMoveProject={handleMoveStep} projects={projects}>
       {pinned.length > 0 ? (
         <section className="space-y-0.5 py-1" aria-label="Pinned threads">
           <div className="px-2 pb-0.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground/70">
@@ -403,6 +540,7 @@ function FilteredProjectList(props: PluginThreadListProps) {
           visibleProjects.map((project) => {
             const forest = forests.get(project.id);
             if (!forest) return null;
+            const isDropTarget = dropTarget?.projectId === project.id;
             return (
               <ProjectGroup
                 key={project.id}
@@ -414,6 +552,33 @@ function FilteredProjectList(props: PluginThreadListProps) {
                 activeProjectId={props.activeProjectId}
                 isCompactViewport={props.isCompactViewport}
                 onNavigate={props.onNavigate}
+                isDragging={draggedProjectId === project.id}
+                dropIndicator={isDropTarget ? dropTarget.position : null}
+                onDragStart={() => setDraggedProjectId(project.id)}
+                onDragEnd={() => {
+                  setDraggedProjectId(null);
+                  setDropTarget(null);
+                }}
+                onDragOverProject={(pos) => {
+                  if (!draggedProjectId || draggedProjectId === project.id) return;
+                  setDropTarget({ projectId: project.id, position: pos });
+                }}
+                onDragLeaveProject={() => {
+                  setDropTarget((current) =>
+                    current?.projectId === project.id ? null : current,
+                  );
+                }}
+                onDropProject={() => {
+                  if (draggedProjectId && dropTarget?.projectId === project.id) {
+                    void handleReorder(
+                      draggedProjectId,
+                      project.id,
+                      dropTarget.position,
+                    );
+                  }
+                  setDraggedProjectId(null);
+                  setDropTarget(null);
+                }}
               />
             );
           })
@@ -432,11 +597,25 @@ function ProjectGroup({
   activeProjectId,
   isCompactViewport,
   onNavigate,
+  isDragging,
+  dropIndicator,
+  onDragStart,
+  onDragEnd,
+  onDragOverProject,
+  onDragLeaveProject,
+  onDropProject,
 }: {
   project: PluginSidebarProject;
   forest: ThreadForest;
   isCollapsed: boolean;
   onToggleCollapsed: () => void;
+  isDragging: boolean;
+  dropIndicator: DropPosition | null;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDragOverProject: (position: DropPosition) => void;
+  onDragLeaveProject: () => void;
+  onDropProject: () => void;
 } & Pick<
   PluginThreadListProps,
   "activeThreadId" | "activeProjectId" | "isCompactViewport" | "onNavigate"
@@ -446,11 +625,39 @@ function ProjectGroup({
   const totalCount =
     forest.roots.length +
     [...forest.childrenOf.values()].reduce((n, siblings) => n + siblings.length, 0);
-  const handleNewThread = () =>
-    experimental_useSidebarThreadActions().openNewThread({ projectId: project.id });
 
   return (
-    <div className="group/project">
+    <div
+      data-sidebar-project-id={project.id}
+      className={`group/project relative transition-opacity duration-150 ${
+        isDragging ? "opacity-35" : ""
+      }`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+        const rect = e.currentTarget.getBoundingClientRect();
+        const isTop = e.clientY < rect.top + rect.height / 2;
+        onDragOverProject(isTop ? "before" : "after");
+      }}
+      onDragLeave={(e) => {
+        const related = e.relatedTarget as Node | null;
+        if (!e.currentTarget.contains(related)) {
+          onDragLeaveProject();
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDropProject();
+      }}
+    >
+      {dropIndicator === "before" && (
+        <div
+          data-testid="drop-indicator-before"
+          className="pointer-events-none absolute -top-0.5 left-1 right-1 z-30 h-0.5 rounded-full bg-primary shadow-sm"
+        />
+      )}
       <div
         className={`flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-sm ${
           isActiveProject
@@ -458,6 +665,27 @@ function ProjectGroup({
             : "text-foreground hover:bg-accent/50"
         }`}
       >
+        <div
+          draggable
+          role="button"
+          tabIndex={0}
+          title="Drag to reorder project"
+          aria-label={`Drag to reorder project ${project.name}`}
+          onDragStart={(e) => {
+            e.stopPropagation();
+            e.dataTransfer.setData("text/plain", project.id);
+            e.dataTransfer.effectAllowed = "move";
+            onDragStart();
+          }}
+          onDragEnd={onDragEnd}
+          className={`flex shrink-0 cursor-grab items-center justify-center rounded p-0.5 text-subtle-foreground/50 transition-opacity hover:text-foreground active:cursor-grabbing ${
+            isCompactViewport
+              ? "opacity-60"
+              : "opacity-0 group-hover/project:opacity-100"
+          }`}
+        >
+          <DragGripIcon className="size-3.5" />
+        </div>
         <button
           type="button"
           onClick={onToggleCollapsed}
@@ -511,6 +739,12 @@ function ProjectGroup({
           <span aria-hidden="true">⋯</span>
         </button>
       </div>
+      {dropIndicator === "after" && (
+        <div
+          data-testid="drop-indicator-after"
+          className="pointer-events-none absolute -bottom-0.5 left-1 right-1 z-30 h-0.5 rounded-full bg-primary shadow-sm"
+        />
+      )}
       {!isCollapsed ? (
         <div className="mt-px space-y-px">
           {forest.roots.map((thread) => (
@@ -679,9 +913,19 @@ const MenuContext = createContext<{
     y: number,
     returnFocus: HTMLButtonElement | null,
   ) => void;
+  onMoveProject?: (projectId: string, direction: "up" | "down") => void;
+  projects?: readonly PluginSidebarProject[];
 } | null>(null);
 
-function MenuProvider({ children }: { children: ReactNode }) {
+function MenuProvider({
+  children,
+  onMoveProject,
+  projects,
+}: {
+  children: ReactNode;
+  onMoveProject?: (projectId: string, direction: "up" | "down") => void;
+  projects?: readonly PluginSidebarProject[];
+}) {
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   useEffect(() => {
@@ -723,6 +967,8 @@ function MenuProvider({ children }: { children: ReactNode }) {
         activeProjectId: menu?.kind === "project" ? menu.projectId : null,
         openThread,
         openProject,
+        onMoveProject,
+        projects,
       }}
     >
       {children}
@@ -911,11 +1157,21 @@ function ProjectMenu({
 }) {
   const actions = experimental_useSidebarThreadActions();
   const rpc = useRpc<typeof rpcContract>();
-  const { projects: allProjects } = experimental_useSidebarThreads();
-  const project = allProjects.find((p) => p.id === menu.projectId);
+  const { onMoveProject, projects: allProjects } = useMenu();
+  const project = allProjects?.find((p) => p.id === menu.projectId);
 
   if (!project) return null;
   const projectName = project.name;
+  const projectIndex = allProjects
+    ? allProjects.findIndex((p) => p.id === project.id)
+    : -1;
+  const canMoveUp = Boolean(onMoveProject && projectIndex > 0);
+  const canMoveDown = Boolean(
+    onMoveProject &&
+      allProjects &&
+      projectIndex !== -1 &&
+      projectIndex < allProjects.length - 1,
+  );
 
   return (
     <MenuShell
@@ -934,6 +1190,35 @@ function ProjectMenu({
       >
         New thread
       </button>
+      {canMoveUp && (
+        <button
+          type="button"
+          role="menuitem"
+          className={menuItemClass}
+          onClick={() => {
+            onMoveProject?.(project.id, "up");
+            onClose();
+          }}
+        >
+          Move up
+        </button>
+      )}
+      {canMoveDown && (
+        <button
+          type="button"
+          role="menuitem"
+          className={menuItemClass}
+          onClick={() => {
+            onMoveProject?.(project.id, "down");
+            onClose();
+          }}
+        >
+          Move down
+        </button>
+      )}
+      {(canMoveUp || canMoveDown) && (
+        <div className="my-1 h-px bg-border" role="separator" />
+      )}
       <button
         type="button"
         role="menuitem"

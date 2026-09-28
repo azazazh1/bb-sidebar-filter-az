@@ -1,11 +1,11 @@
 {
   "name": "bb-plugin-sidebar-filter",
-  "version": "0.3.1",
-  "description": "Sidebar thread list that hides projects without active or unread threads.",
+  "version": "0.4.0",
+  "description": "Sidebar thread list that hides projects without active or unread threads, with drag-and-drop project reordering.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/slogsdon/bb-plugin-sidebar-filter.git"
+    "url": "git+https://github.com/azazazh1/bb-sidebar-filter-az.git"
   },
   "type": "module",
   "scripts": {
@@ -19,7 +19,7 @@
   },
   "bb": {
     "name": "Sidebar Project Filter",
-    "description": "Sidebar thread list that hides projects without active or unread threads.",
+    "description": "Sidebar thread list with project filter and drag-and-drop reordering.",
     "branding": {
       "icon": "./assets/icon.svg"
     },
