@@ -33,19 +33,26 @@ crashes, bb falls back to the built-in list automatically.
 bb plugin config sidebar-filter set hideEmptyProjects true
 bb plugin config sidebar-filter set activeMode exists   # or running
 bb plugin config sidebar-filter set toggleShortcut "Alt+A"
+bb plugin config sidebar-filter set shortlistShortcut "Ctrl+Alt+S"
 ```
 
-| Setting             | Default  | Meaning                                                        |
-| ------------------- | -------- | -------------------------------------------------------------- |
-| `hideEmptyProjects` | `true`   | Hide projects with no active or unread (non-archived) threads. `false` shows them all. |
-| `activeMode`        | `exists` | `exists` — non-archived threads count. `running` — only currently running threads count. Unread non-archived threads count in either mode. |
-| `toggleShortcut`    | `Alt+A`  | Keyboard shortcut for switching between `exists` and `running`; empty disables it. |
+| Setting             | Default      | Meaning                                                        |
+| ------------------- | ------------ | -------------------------------------------------------------- |
+| `hideEmptyProjects` | `true`       | Hide projects with no active or unread (non-archived) threads. `false` shows them all. |
+| `activeMode`        | `exists`     | `exists` — non-archived threads count. `running` — only currently running threads count. Unread non-archived threads count in either mode. |
+| `toggleShortcut`    | `Alt+A`      | Keyboard shortcut for switching between `exists` and `running`; empty disables it. |
+| `shortlistShortcut` | `Ctrl+Alt+S` | Keyboard shortcut for toggling shortlist-only filter view; empty disables it. |
 
 ## What the list does
 
 - One collapsible row per project, in bb's project order; a project appears
   only when it has active or unread matching threads. Archived unread threads
   are not included.
+- **Shortlist support**:
+  - Mark/unmark threads to shortlist via hover star icon (`☆`/`★`) or via row context menu (`⋯` / right-click → *Add to shortlist* / *Remove from shortlist*).
+  - Starred threads keep a persistent gold star indicator.
+  - Toggle **Shortlist** filter via the header button (`★ Shortlist`) or via customizable hotkey (`Ctrl+Alt+S` by default).
+  - Shortlist selection and active filter mode persist across reloads (in `localStorage`).
 - **Drag-and-drop project reordering**: grab the drag grip handle (`⋮⋮`) on hover to reorder projects; visual drop indicator lines indicate where the project will be placed.
 - **Project menu actions**: click `⋯` on any project row to quickly "Move up" or "Move down".
 - Pinned threads in their own **Pinned** section on top, like the built-in
@@ -58,7 +65,7 @@ bb plugin config sidebar-filter set toggleShortcut "Alt+A"
   affordance.
 - The host search field filters rows (and projects) live.
 - Click a thread row's three-dot button or right-click the row for a menu:
-  pin/unpin, mark read/unread, rename, copy thread ID, archive, and delete
+  shortlist toggle, pin/unpin, mark read/unread, rename, copy thread ID, archive, and delete
   (through bb's own confirmation flow).
 
 ## What it deliberately leaves out

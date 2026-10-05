@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "./components/ui/icon";
 import { usePortalScopeProps } from "./lib/portal-scope";
 import {
   definePluginApp,
@@ -44,6 +45,8 @@ import type {
 } from "@get-bb/plugin-sdk/app";
 
 const COLLAPSED_KEY = "bb-plugin-sidebar-filter.collapsed-projects";
+const SHORTLIST_KEY = "bb-plugin-sidebar-filter.shortlist";
+const SHORTLIST_ONLY_KEY = "bb-plugin-sidebar-filter.shortlist-only";
 
 function activityRunning(thread: PluginSidebarThread): boolean {
   const a = thread.activity;
@@ -263,6 +266,8 @@ function FilteredProjectList(props: PluginThreadListProps) {
     values?.activeMode === "running" ? "running" : "exists";
   const toggleShortcut =
     (values?.toggleShortcut as string | undefined) ?? "Alt+A";
+  const shortlistShortcut =
+    (values?.shortlistShortcut as string | undefined) ?? "Ctrl+Alt+S";
   const [localMode, setLocalMode] = useState<"exists" | "running" | null>(
     null,
   );
@@ -270,6 +275,49 @@ function FilteredProjectList(props: PluginThreadListProps) {
   const committedModeRef = useRef<"exists" | "running" | null>(null);
   const persistenceChainRef = useRef(Promise.resolve());
   const latestPersistenceRef = useRef(0);
+
+  const [shortlist, setShortlist] = useState<ReadonlySet<string>>(() => {
+    try {
+      const raw = localStorage.getItem(SHORTLIST_KEY);
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const [shortlistOnly, setShortlistOnly] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SHORTLIST_ONLY_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleShortlistThread = (threadId: string) => {
+    setShortlist((current) => {
+      const next = new Set(current);
+      if (next.has(threadId)) next.delete(threadId);
+      else next.add(threadId);
+      try {
+        localStorage.setItem(SHORTLIST_KEY, JSON.stringify([...next]));
+      } catch {
+        // localStorage unavailable
+      }
+      return next;
+    });
+  };
+
+  const toggleShortlistFilter = () => {
+    setShortlistOnly((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SHORTLIST_ONLY_KEY, String(next));
+      } catch {
+        // localStorage unavailable
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     committedModeRef.current = configuredMode;
@@ -329,6 +377,29 @@ function FilteredProjectList(props: PluginThreadListProps) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [toggleShortcut, activeMode]);
+
+  useEffect(() => {
+    if (!shortlistShortcut.trim()) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isInput =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      if (!matchesShortcut(event, shortlistShortcut)) return;
+      if (isInput && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      toggleShortlistFilter();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shortlistShortcut]);
 
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => {
     try {
@@ -407,19 +478,23 @@ function FilteredProjectList(props: PluginThreadListProps) {
       threads
         .filter(
           (t) =>
-            t.isPinned && !t.isArchived && matchesQuery(t, props.searchQuery),
+            t.isPinned &&
+            !t.isArchived &&
+            (!shortlistOnly || shortlist.has(t.id)) &&
+            matchesQuery(t, props.searchQuery),
         )
         .sort((a, b) => b.updatedAt - a.updatedAt),
-    [threads, props.searchQuery],
+    [threads, shortlistOnly, shortlist, props.searchQuery],
   );
 
   const { visibleProjects, forests } = useMemo(() => {
     const byId = new Map(threads.map((t) => [t.id, t]));
 
-    // Threads that match the active-or-unread + search filters.
+    // Threads that match the active-or-unread + search filters (and shortlist if active).
     const matched = threads.filter(
       (t) =>
         !t.isPinned &&
+        (!shortlistOnly || shortlist.has(t.id)) &&
         matchesProjectFilter(t, activeMode) &&
         matchesQuery(t, props.searchQuery),
     );
@@ -476,7 +551,7 @@ function FilteredProjectList(props: PluginThreadListProps) {
     );
 
     return { visibleProjects: visible, forests: builtForests };
-  }, [projects, threads, activeMode, hideEmpty, props.searchQuery]);
+  }, [projects, threads, activeMode, hideEmpty, shortlistOnly, shortlist, props.searchQuery]);
 
   if (status === "loading") {
     return (
@@ -496,7 +571,12 @@ function FilteredProjectList(props: PluginThreadListProps) {
   }
 
   return (
-    <MenuProvider onMoveProject={handleMoveStep} projects={projects}>
+    <MenuProvider
+      onMoveProject={handleMoveStep}
+      projects={projects}
+      shortlist={shortlist}
+      onToggleShortlist={toggleShortlistThread}
+    >
       {pinned.length > 0 ? (
         <section className="space-y-0.5 py-1" aria-label="Pinned threads">
           <div className="px-2 pb-0.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground/70">
@@ -511,6 +591,8 @@ function FilteredProjectList(props: PluginThreadListProps) {
               activeThreadId={props.activeThreadId}
               isCompactViewport={props.isCompactViewport}
               onNavigate={props.onNavigate}
+              isShortlisted={shortlist.has(thread.id)}
+              onToggleShortlist={() => toggleShortlistThread(thread.id)}
             />
           ))}
         </section>
@@ -519,22 +601,38 @@ function FilteredProjectList(props: PluginThreadListProps) {
       <section className="space-y-0.5 py-1" aria-label="Projects">
         <div className="flex items-center justify-between px-2 pb-0.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground/70">
           <span>Projects</span>
-          <button
-            type="button"
-            onClick={toggleActiveMode}
-            title={`Active filter: ${activeMode === "running" ? "Running only" : "All active"}${toggleShortcut ? ` (${toggleShortcut})` : ""} — click to toggle`}
-            className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] font-normal normal-case transition-colors ${
-              activeMode === "running"
-                ? "bg-primary/20 font-medium text-primary"
-                : "bg-accent/60 text-subtle-foreground hover:text-foreground"
-            }`}
-          >
-            {activeMode === "running" ? "● Running" : "○ All active"}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleShortlistFilter}
+              title={`Shortlist filter: ${shortlistOnly ? "Shortlist only" : "All"}${shortlistShortcut ? ` (${shortlistShortcut})` : ""} — click to toggle`}
+              className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] font-normal normal-case transition-colors ${
+                shortlistOnly
+                  ? "bg-amber-500/20 font-medium text-amber-500"
+                  : "bg-accent/60 text-subtle-foreground hover:text-foreground"
+              }`}
+            >
+              {shortlistOnly ? "★ Shortlist" : "☆ Shortlist"}
+            </button>
+            <button
+              type="button"
+              onClick={toggleActiveMode}
+              title={`Active filter: ${activeMode === "running" ? "Running only" : "All active"}${toggleShortcut ? ` (${toggleShortcut})` : ""} — click to toggle`}
+              className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] font-normal normal-case transition-colors ${
+                activeMode === "running"
+                  ? "bg-primary/20 font-medium text-primary"
+                  : "bg-accent/60 text-subtle-foreground hover:text-foreground"
+              }`}
+            >
+              {activeMode === "running" ? "● Running" : "○ All active"}
+            </button>
+          </div>
         </div>
         {visibleProjects.length === 0 ? (
           <div className="px-2 py-3 text-xs text-subtle-foreground/60">
-            No projects with active or unread threads.
+            {shortlistOnly
+              ? "No projects with shortlisted threads."
+              : "No projects with active or unread threads."}
           </div>
         ) : (
           visibleProjects.map((project) => {
@@ -771,6 +869,8 @@ function ThreadRow({
   activeThreadId,
   isCompactViewport,
   onNavigate,
+  isShortlisted,
+  onToggleShortlist,
 }: {
   thread: PluginSidebarThread;
   depth: number;
@@ -778,6 +878,8 @@ function ThreadRow({
   activeThreadId: string | null;
   isCompactViewport: boolean;
   onNavigate: () => void;
+  isShortlisted?: boolean;
+  onToggleShortlist?: () => void;
 }) {
   const actions = experimental_useSidebarThreadActions();
   const { splitProps, isAvailable } = experimental_useSidebarThreadSplit(
@@ -790,6 +892,8 @@ function ThreadRow({
   const secondary =
     thread.environment?.branchName ?? thread.host?.name ?? null;
   const children = childrenOf?.get(thread.id) ?? [];
+  const shortlisted = isShortlisted ?? (menu.shortlist?.has(thread.id) ?? false);
+  const toggleShortlist = onToggleShortlist ?? (() => menu.onToggleShortlist?.(thread.id));
 
   const handleOpen = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -821,7 +925,7 @@ function ThreadRow({
         }}
         title={`${title} — ${statusDotAria(thread)}`}
         style={{ paddingLeft: 8 + depth * 14 }}
-        className={`flex min-w-0 items-center gap-2 rounded-md py-1 pr-8 text-sm ${
+        className={`flex min-w-0 items-center gap-2 rounded-md py-1 pr-14 text-sm ${
           thread.isUnread && !isActive
             ? "font-medium text-foreground"
             : "text-muted-foreground"
@@ -847,6 +951,27 @@ function ThreadRow({
           </span>
         ) : null}
       </a>
+      <button
+        type="button"
+        aria-label={shortlisted ? `Remove ${title} from shortlist` : `Add ${title} to shortlist`}
+        title={shortlisted ? "Remove from shortlist" : "Add to shortlist"}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleShortlist();
+        }}
+        className={`absolute right-7 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-sm transition-opacity hover:bg-accent focus-visible:opacity-100 ${
+          shortlisted
+            ? "text-amber-400 opacity-100"
+            : isCompactViewport || isActive
+              ? "text-subtle-foreground/70 opacity-70 hover:text-foreground"
+              : "text-subtle-foreground/70 opacity-0 hover:text-foreground group-hover/row:opacity-100"
+        }`}
+      >
+        <span aria-hidden="true" className={shortlisted ? "fill-current" : ""}>
+          {shortlisted ? "★" : "☆"}
+        </span>
+      </button>
       <button
         type="button"
         aria-label={`Actions for ${title}`}
@@ -889,6 +1014,8 @@ function ThreadRow({
             activeThreadId={activeThreadId}
             isCompactViewport={isCompactViewport}
             onNavigate={onNavigate}
+            isShortlisted={menu.shortlist?.has(child.id)}
+            onToggleShortlist={() => menu.onToggleShortlist?.(child.id)}
           />
         ))}
       </div>
@@ -915,16 +1042,22 @@ const MenuContext = createContext<{
   ) => void;
   onMoveProject?: (projectId: string, direction: "up" | "down") => void;
   projects?: readonly PluginSidebarProject[];
+  shortlist?: ReadonlySet<string>;
+  onToggleShortlist?: (threadId: string) => void;
 } | null>(null);
 
 function MenuProvider({
   children,
   onMoveProject,
   projects,
+  shortlist,
+  onToggleShortlist,
 }: {
   children: ReactNode;
   onMoveProject?: (projectId: string, direction: "up" | "down") => void;
   projects?: readonly PluginSidebarProject[];
+  shortlist?: ReadonlySet<string>;
+  onToggleShortlist?: (threadId: string) => void;
 }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
 
@@ -969,6 +1102,8 @@ function MenuProvider({
         openProject,
         onMoveProject,
         projects,
+        shortlist,
+        onToggleShortlist,
       }}
     >
       {children}
@@ -1065,9 +1200,11 @@ function RowMenu({
   const actions = experimental_useSidebarThreadActions();
   const { threads: allThreads } = experimental_useSidebarThreads();
   const thread = allThreads.find((t) => t.id === menu.threadId);
+  const menuCtx = useMenu();
 
   if (!thread) return null;
   const title = threadTitle(thread);
+  const isShortlisted = menuCtx.shortlist?.has(thread.id) ?? false;
 
   return (
     <MenuShell
@@ -1075,6 +1212,18 @@ function RowMenu({
       menu={menu}
       onClose={onClose}
     >
+      <button
+        type="button"
+        role="menuitem"
+        className={menuItemClass}
+        onClick={() => {
+          menuCtx.onToggleShortlist?.(thread.id);
+          onClose();
+        }}
+      >
+        {isShortlisted ? "Remove from shortlist" : "Add to shortlist"}
+      </button>
+      <div className="my-1 h-px bg-border" role="separator" />
       <button
         type="button"
         role="menuitem"

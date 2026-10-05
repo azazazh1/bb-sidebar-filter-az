@@ -94,6 +94,8 @@ beforeEach(() => {
     value: {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+      clear: () => storage.clear(),
     },
   });
 });
@@ -598,5 +600,119 @@ describe("drag-and-drop and menu project reordering", () => {
         nextProjectId: "proj-a",
       }),
     );
+  });
+});
+
+describe("shortlist feature and keyboard shortcut", () => {
+  const projA: PluginSidebarProject = {
+    id: "proj-a",
+    name: "Project Alpha",
+    isPersonal: false,
+    href: "",
+    settingsHref: "",
+  };
+  const threadA: PluginSidebarThread = {
+    ...thread,
+    id: "t-a",
+    projectId: "proj-a",
+    title: "Thread Alpha",
+  };
+  const threadB: PluginSidebarThread = {
+    ...thread,
+    id: "t-b",
+    projectId: "proj-a",
+    title: "Thread Beta",
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  test("toggles shortlist via star button and row menu", async () => {
+    const slot = renderSlot(threadList, slotProps, {
+      settings: { hideEmptyProjects: false, activeMode: "exists" },
+      sidebarThreads: {
+        status: "ready",
+        projects: [projA],
+        threads: [threadA, threadB],
+      },
+    });
+
+    const starBtn = slot.getByRole("button", {
+      name: "Add Thread Alpha to shortlist",
+    });
+    expect(starBtn).toBeTruthy();
+
+    fireEvent.click(starBtn);
+
+    expect(
+      slot.getByRole("button", { name: "Remove Thread Alpha from shortlist" }),
+    ).toBeTruthy();
+    expect(
+      JSON.parse(localStorage.getItem("bb-plugin-sidebar-filter.shortlist") || "[]"),
+    ).toContain("t-a");
+
+    // Open row menu for threadB
+    fireEvent.click(
+      slot.getByRole("button", { name: "Actions for Thread Beta" }),
+    );
+    const addToShortlistMenuItem = slot.getByRole("menuitem", {
+      name: "Add to shortlist",
+    });
+    fireEvent.click(addToShortlistMenuItem);
+
+    expect(
+      JSON.parse(localStorage.getItem("bb-plugin-sidebar-filter.shortlist") || "[]"),
+    ).toContain("t-b");
+  });
+
+  test("filters view when shortlist mode is activated by header or shortcut", () => {
+    localStorage.setItem(
+      "bb-plugin-sidebar-filter.shortlist",
+      JSON.stringify(["t-a"]),
+    );
+
+    const slot = renderSlot(threadList, slotProps, {
+      settings: {
+        hideEmptyProjects: true,
+        activeMode: "exists",
+        shortlistShortcut: "Ctrl+Alt+S",
+      },
+      sidebarThreads: {
+        status: "ready",
+        projects: [projA],
+        threads: [threadA, threadB],
+      },
+    });
+
+    // Before toggling shortlist filter, both are visible
+    expect(slot.getByRole("link", { name: "Thread Alpha" })).toBeTruthy();
+    expect(slot.getByRole("link", { name: "Thread Beta" })).toBeTruthy();
+
+    // Toggle via button
+    const shortlistToggleBtn = slot.getByRole("button", {
+      name: "☆ Shortlist",
+    });
+    fireEvent.click(shortlistToggleBtn);
+
+    // Only Thread Alpha is visible now
+    expect(slot.getByRole("link", { name: "Thread Alpha" })).toBeTruthy();
+    expect(slot.queryByRole("link", { name: "Thread Beta" })).toBeNull();
+    expect(
+      localStorage.getItem("bb-plugin-sidebar-filter.shortlist-only"),
+    ).toBe("true");
+
+    // Toggle back via shortcut Ctrl+Alt+S
+    fireEvent.keyDown(window, {
+      key: "s",
+      code: "KeyS",
+      ctrlKey: true,
+      altKey: true,
+    });
+
+    expect(slot.getByRole("link", { name: "Thread Beta" })).toBeTruthy();
+    expect(
+      localStorage.getItem("bb-plugin-sidebar-filter.shortlist-only"),
+    ).toBe("false");
   });
 });

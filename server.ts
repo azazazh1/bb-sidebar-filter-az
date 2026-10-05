@@ -56,6 +56,13 @@ export default async function plugin(bb: BbPluginApi) {
         "Keyboard shortcut to toggle between 'exists' and 'running'. Leave empty to disable.",
       default: "Alt+A",
     },
+    shortlistShortcut: {
+      type: "string",
+      label: "Hotkey to toggle shortlist filter",
+      description:
+        "Keyboard shortcut to toggle shortlist-only view. Leave empty to disable.",
+      default: "Ctrl+Alt+S",
+    },
   });
 
   bb.rpc.register(rpcContract, {
