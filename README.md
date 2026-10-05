@@ -49,7 +49,7 @@ bb plugin config sidebar-filter set shortlistShortcut "Ctrl+Alt+S"
   only when it has active or unread matching threads. Archived unread threads
   are not included.
 - **Shortlist support**:
-  - Mark/unmark threads to shortlist via hover star icon (`☆`/`★`) or via row context menu (`⋯` / right-click → *Add to shortlist* / *Remove from shortlist*).
+  - Mark/unmark threads to shortlist via `Ctrl+Click` (or `Cmd+Click` on Mac), hover star icon (`☆`/`★`), or row context menu (`⋯` / right-click → *Add to shortlist* / *Remove from shortlist*).
   - Starred threads keep a persistent gold star indicator.
   - Toggle **Shortlist** filter via the header button (`★ Shortlist`) or via customizable hotkey (`Ctrl+Alt+S` by default).
   - Shortlist selection and active filter mode persist across reloads (in `localStorage`).

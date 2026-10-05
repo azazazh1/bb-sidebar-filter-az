@@ -897,6 +897,11 @@ function ThreadRow({
 
   const handleOpen = (event: ReactMouseEvent) => {
     event.preventDefault();
+    if (event.ctrlKey || event.metaKey) {
+      event.stopPropagation();
+      toggleShortlist();
+      return;
+    }
     actions.open(thread.id);
     onNavigate();
   };

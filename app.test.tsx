@@ -664,6 +664,20 @@ describe("shortlist feature and keyboard shortcut", () => {
     expect(
       JSON.parse(localStorage.getItem("bb-plugin-sidebar-filter.shortlist") || "[]"),
     ).toContain("t-b");
+    // Toggle shortlist via Ctrl+Click on row link
+    const threadALink = slot.getByRole("link", { name: "Thread Alpha" });
+    fireEvent.click(threadALink, { ctrlKey: true });
+
+    // Should remove from shortlist
+    expect(
+      JSON.parse(localStorage.getItem("bb-plugin-sidebar-filter.shortlist") || "[]"),
+    ).not.toContain("t-a");
+
+    // Ctrl+Click again should add it back
+    fireEvent.click(threadALink, { ctrlKey: true });
+    expect(
+      JSON.parse(localStorage.getItem("bb-plugin-sidebar-filter.shortlist") || "[]"),
+    ).toContain("t-a");
   });
 
   test("filters view when shortlist mode is activated by header or shortcut", () => {
