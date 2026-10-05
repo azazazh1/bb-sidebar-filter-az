@@ -776,10 +776,10 @@ function ProjectGroup({
             onDragStart();
           }}
           onDragEnd={onDragEnd}
-          className={`flex shrink-0 cursor-grab items-center justify-center rounded p-0.5 text-subtle-foreground/50 transition-opacity hover:text-foreground active:cursor-grabbing ${
+          className={`flex shrink-0 cursor-grab items-center justify-center rounded p-0.5 text-subtle-foreground/60 transition-opacity hover:text-foreground active:cursor-grabbing ${
             isCompactViewport
-              ? "opacity-60"
-              : "opacity-0 group-hover/project:opacity-100"
+              ? "opacity-70"
+              : "opacity-40 group-hover/project:opacity-100"
           }`}
         >
           <DragGripIcon className="size-3.5" />
